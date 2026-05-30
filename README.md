@@ -144,16 +144,33 @@ python src/train_bigru.py
 python src/train_bert.py
 ```
 
-评估模型：
+评估模型（三模型对比，输出 accuracy、precision、recall、F1）：
 
 ```bash
 python src/evaluate.py
 ```
 
-单条推理：
+单条推理（分类 + LLM 中文解释）：
 
 ```bash
 python src/inference.py --text "Breaking news: example tweet text"
+```
+
+其他推理选项：
+
+```bash
+# 只用 LR / BiGRU 模型
+python src/inference.py --text "xxx" --model lr
+python src/inference.py --text "xxx" --model bigru
+
+# 仅分类，跳过 LLM 解释（速度快）
+python src/inference.py --text "xxx" --no-explain
+```
+
+解释效果抽查（随机抽取验证集样本展示分类 + 解释）：
+
+```bash
+python test_explain.py -n 10
 ```
 
 ## 最终提交内容
