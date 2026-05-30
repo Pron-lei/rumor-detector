@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*.so
+*.egg-info/
+dist/
+build/
+eggs/
+*.egg
+
+# Virtual environments
+venv/
+env/
+.venv/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Models (large files)
+models/*.pt
+models/*.pkl
+models/*.bin
+models/*.safetensors
+models/bert_model/
+
+# Keep directory structure
+!models/.gitkeep
+
+# Outputs
+outputs/predictions.csv
+outputs/figures/*.png
+outputs/figures/*.pdf
+!outputs/.gitkeep
+!outputs/figures/.gitkeep
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Course materials (not to be committed)
+*大作业*.pdf
+*大作业*.doc
+
+# Temp
+_pdf_output.txt
