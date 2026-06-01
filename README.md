@@ -17,11 +17,11 @@
 rumor-detector/
 ├── README.md
 ├── requirements.txt
+├── environment.yml
 ├── data/
 │   ├── train.csv
 │   └── val.csv
 ├── src/
-│   ├── preprocess.py
 │   ├── train_baseline.py
 │   ├── train_bigru.py
 │   ├── train_bert.py
@@ -33,13 +33,10 @@ rumor-detector/
 │   └── inference.py
 ├── models/
 │   ├── lr_model.pkl
+│   ├── bigru.pt
 │   └── bert_model/
 ├── outputs/
-│   ├── predictions.csv
 │   └── figures/
-├── notebooks/
-│   ├── eda.ipynb
-│   └── result_analysis.ipynb
 └── docs/
     └── API使用说明.md
 ```
@@ -50,9 +47,9 @@ rumor-detector/
 
 | 成员 | 角色 | 负责内容 | 主要产出 |
 |---|---|---|---|
-| A | 组长 / 系统集成 / 文档 | 建立 GitHub 仓库，制定进度，整合分类模型和解释模型，维护 README，统稿最终报告 | `README.md`、`src/inference.py`、最终 `report.pdf` |
-| B | 分类模型负责人 | 数据清洗、EDA、TF-IDF + LR 基线、BiGRU、BERT/RoBERTa 微调，保存最优模型 | `src/preprocess.py`、`src/train_baseline.py`、`src/train_bigru.py`、`src/train_bert.py`、`models/` |
-| C | 解释模型负责人 | 对接 SJTU LLM API，设计 Prompt，生成判断依据，可选实现 RAG 检索增强 | `src/llm_api.py`、`src/prompts.py`、`src/explain.py`、`src/rag.py` |
+| A | 组长 / 系统集成 / 文档 | 建立 GitHub 仓库，整合分类模型和解释模型，维护 README，EDA 与报告图表绘制，统稿最终报告 | `README.md`、`src/inference.py`、最终 `report.pdf` |
+| B | 分类模型负责人 | TF-IDF + LR 基线、BiGRU、BERT微调，保存最优模型 | `src/train_baseline.py`、`src/train_bigru.py`、`src/train_bert.py`、`models/` |
+| C | 解释模型负责人 | 对接 SJTU LLM API，设计 Prompt，生成判断依据  | `src/llm_api.py`、`src/prompts.py`、`src/explain.py` |
 | D | 实验评估 / 可视化 / 报告实验 | 统一评估各模型，统计 accuracy、precision、recall、F1，绘制混淆矩阵和对比图，分析解释质量 | `src/evaluate.py`、`outputs/figures/`、实验结果表格 |
 
 协作要求：
@@ -91,7 +88,7 @@ pip install torch torchvision torchaudio
 - `pandas`：读取 CSV 数据。
 - `scikit-learn`：TF-IDF、逻辑回归、评估指标。
 - `torch`：BiGRU 和深度学习模型训练。
-- `transformers`：BERT / RoBERTa 微调。
+- `transformers`：BERT微调。
 - `matplotlib`、`seaborn`：实验结果可视化。
 - `joblib`：保存和加载传统机器学习模型。
 - `requests`：调用 SJTU LLM API。
@@ -114,15 +111,48 @@ data/val.csv
 | `label` | 标签，`0` 为非谣言，`1` 为谣言 |
 | `event` | 事件主题类别 |
 
-## 推荐开发流程
+## 成员分工流程
 
-1. B 先完成 `TF-IDF + LogisticRegression` 基线模型，保存到 `models/lr_model.pkl`。
-2. D 编写统一评估脚本，在 `val.csv` 上输出 accuracy、precision、recall、F1。
-3. A 编写 `RumourDetectClass`，打通单条文本推理流程。
-4. C 接入 SJTU LLM API，根据文本、分类标签和置信度生成中文解释。
-5. B 继续训练 BiGRU 和 BERT，替换基线模型，提升准确率。
-6. D 汇总不同模型实验结果，生成图表并撰写实验分析。
-7. A 整理 README、报告和最终提交文件。
+**依赖关系：** A 依赖 B（模型文件）和 C（`explain.py` 的 `generate_explanation()` 接口）；D 依赖 B（模型文件）；C 独立开发。
+
+**1. 成员 B — 分类模型训练**
+
+在 `src/` 下完成三个训练脚本，训练结果保存至 `models/`：
+
+| 脚本 | 产出 | 说明 |
+|------|------|------|
+| `train_baseline.py` | `models/lr_model.pkl` | TF-IDF + 逻辑回归，快速基线 |
+| `train_bigru.py` | `models/bigru.pt` | 双向 GRU + 词嵌入，深度学习基线 |
+| `train_bert.py` | `models/bert_model/` | BERT 微调，主力模型 |
+
+模型文件是后续 A（推理）和 D（评估）的共同依赖，需最先完成。
+
+**2. 成员 C — 解释生成模块**
+
+在 `src/` 下完成三层解释管线：
+
+| 文件 | 职责 |
+|------|------|
+| `llm_api.py` | 封装 SJTU LLM API 调用，支持超时重试 |
+| `prompts.py` | 管理 Prompt 模板（v0 基础版 / v1 思维链引导 / fewshot 少样本） |
+| `explain.py` | 接收文本 + 分类标签 + 置信度，调用 LLM 生成中文判断依据；LLM 不可用时自动回退到规则模板 |
+
+对外暴露 `generate_explanation(text, label, confidence) -> str`，供 A 的 `inference.py` 调用。C 不依赖其他人，可并行开发。
+
+**3. 成员 D — 模型评估**
+
+编写 `src/evaluate.py`，在验证集 `val.csv` 上对三个模型（LR / BiGRU / BERT）统一评估，输出 accuracy、precision、recall、F1 并汇总对比。可选：绘制混淆矩阵和对比柱状图至 `outputs/figures/`。
+
+**4. 成员 A — 系统集成与报告**
+
+编写 `src/inference.py`，实现 `RumourDetectClass`：
+
+- 加载 B 的模型做分类 → 得到 label + confidence
+- 调用 C 的 `generate_explanation()` 生成中文判断依据
+- 提供命令行入口：`python src/inference.py -t "推文内容"`
+
+最后统稿 `report.pdf`（≤2000 字），维护 README。A 的工作在 B 和 C 完成后收尾。
+
 
 ## 常用命令
 
