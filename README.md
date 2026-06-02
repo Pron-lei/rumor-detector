@@ -35,10 +35,8 @@ rumor-detector/
 │   ├── lr_model.pkl
 │   ├── bigru.pt
 │   └── bert_model/
-├── outputs/
-│   └── figures/
-└── docs/
-    └── API使用说明.md
+└── outputs/
+    └── figures/
 ```
 
 当前已创建基础目录，后续按上面的文件名逐步补充代码和文档。
