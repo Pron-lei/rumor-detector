@@ -16,11 +16,7 @@ env/
 # Jupyter
 .ipynb_checkpoints/
 
-# Models (large files)
-models/*.pt
-models/*.pkl
-models/*.bin
-models/*.safetensors
+# Models (only block large BERT model; small models are committed)
 models/bert_model/
 
 # Keep directory structure
