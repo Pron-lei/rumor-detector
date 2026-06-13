@@ -5,7 +5,12 @@ from __future__ import annotations
 from typing import Literal
 
 
-PromptType = Literal["basic", "evidence", "fewshot"]
+PromptType = Literal["basic", "evidence", "fewshot", "fewshot_evidence"]
+
+LABEL_MAP = {
+    0: "非谣言",
+    1: "谣言",
+}
 
 LABEL_TEXT = {
     0: "非谣言",
@@ -84,23 +89,72 @@ def _fewshot_prompt(text: str, label: int, confidence: float) -> list[dict[str, 
     ]
 
 
+def build_fewshot_evidence_prompt(
+    text: str,
+    label: int,
+    confidence: float,
+    evidence_tags: list[str] | None = None,
+) -> str:
+    """Build a few-shot prompt with explicit evidence tags."""
+
+    label_text = LABEL_MAP.get(label, "非谣言")
+    tags = evidence_tags or ["表述较客观"]
+    tag_text = "、".join(tags)
+    confidence_note = (
+        "如果 confidence < 0.60，要在解释中体现模型判断不够确定。"
+        if confidence < 0.60
+        else ""
+    )
+    return (
+        "你是一个可解释谣言检测助手。LLM 不是事实核查系统，不要重新判断真假，"
+        "只解释分类模型为什么可能给出该结果。不要编造外部事实、新闻背景、调查结论。"
+        "不要声称“已经查证”“事实证明”“官方证实”。不要仅因为事件名、人物名、地名、"
+        "hashtag、URL 判断为谣言或非谣言。只输出一段 80 到 150 字中文判断依据，"
+        "不要分点，不要输出英文原文。"
+        f"{confidence_note}\n\n"
+        "示例 1：\n"
+        "推文：BREAKING: Unconfirmed reports say a second explosion happened downtown.\n"
+        "标签：1（谣言）\n"
+        "置信度：0.8600\n"
+        "线索：突发新闻式表达、未经证实或传闻式表达\n"
+        "解释：该推文被判定为谣言，模型置信度较高。文本中出现了突发新闻式表达和未经证实的说法，"
+        "但没有给出明确来源或更多可核验细节，因此模型认为其谣言风险较高。\n\n"
+        "示例 2：\n"
+        "推文：The city council will hold a public meeting on Friday according to the official schedule.\n"
+        "标签：0（非谣言）\n"
+        "置信度：0.8200\n"
+        "线索：表述较客观\n"
+        "解释：该推文被判定为非谣言，模型置信度较高。文本整体表述较为客观，包含明确主体和时间信息，"
+        "没有明显夸张、恐慌或诱导转发的表达，因此模型认为其谣言风险较低。\n\n"
+        "现在请解释下面这条推文的分类结果：\n"
+        f"推文：{text}\n"
+        f"标签：{label}（{label_text}）\n"
+        f"置信度：{confidence:.4f}\n"
+        f"线索：{tag_text}\n"
+        "解释："
+    )
+
+
 def build_prompt(
     text: str,
     label: int,
     confidence: float,
-    prompt_type: PromptType = "evidence",
-) -> list[dict[str, str]]:
+    prompt_type: PromptType = "fewshot_evidence",
+    evidence_tags: list[str] | None = None,
+) -> list[dict[str, str]] | str:
     """Build OpenAI-compatible chat messages for the selected prompt template."""
 
     if label not in LABEL_TEXT:
         raise ValueError("label must be 0 (非谣言) or 1 (谣言)")
+    if prompt_type == "fewshot_evidence":
+        return build_fewshot_evidence_prompt(text, label, confidence, evidence_tags)
     if prompt_type == "basic":
         return _basic_prompt(text, label, confidence)
     if prompt_type == "evidence":
         return _evidence_prompt(text, label, confidence)
     if prompt_type == "fewshot":
         return _fewshot_prompt(text, label, confidence)
-    raise ValueError("prompt_type must be one of: basic, evidence, fewshot")
+    raise ValueError("prompt_type must be one of: basic, evidence, fewshot, fewshot_evidence")
 
 
-__all__ = ["build_prompt"]
+__all__ = ["LABEL_MAP", "build_fewshot_evidence_prompt", "build_prompt"]

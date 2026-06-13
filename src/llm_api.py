@@ -16,7 +16,7 @@ except ImportError:  # Keep fallback explanations usable before dependencies are
     RequestException = OSError  # type: ignore[assignment]
 
 
-class LLMAPIError(RuntimeError):
+class LLMAPIError(Exception):
     """Raised when the LLM API cannot return a usable response."""
 
 
@@ -48,7 +48,7 @@ def _get_config() -> tuple[str, str, str]:
     _load_dotenv_if_needed()
     api_url = os.getenv("SJTU_LLM_API_URL", "").strip()
     api_key = os.getenv("SJTU_LLM_API_KEY", "").strip()
-    model = os.getenv("SJTU_LLM_MODEL", "").strip()
+    model = os.getenv("SJTU_LLM_MODEL", "deepseek-chat").strip() or "deepseek-chat"
 
     missing = [
         name
@@ -185,4 +185,26 @@ def call_llm(
     raise LLMAPIError(f"LLM API call failed after {retries + 1} attempts") from last_error
 
 
-__all__ = ["LLMAPIError", "call_llm"]
+def call_sjtu_llm(
+    prompt: str | list[dict[str, str]],
+    temperature: float = 0.2,
+    max_tokens: int = 300,
+    timeout: float = 20,
+    retries: int = 2,
+) -> str:
+    """Call SJTU LLM with either a plain prompt string or chat messages."""
+
+    if isinstance(prompt, str):
+        messages = [{"role": "user", "content": prompt}]
+    else:
+        messages = prompt
+    return call_llm(
+        messages,
+        timeout=timeout,
+        retries=retries,
+        temperature=temperature,
+        max_tokens=max_tokens,
+    )
+
+
+__all__ = ["LLMAPIError", "call_llm", "call_sjtu_llm"]
