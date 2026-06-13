@@ -18,6 +18,7 @@ import pandas as pd
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score, classification_report
+from sklearn.pipeline import FeatureUnion
 
 PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -39,11 +40,33 @@ def main():
     X_val = preprocess(val_df["text"].astype(str))
     y_val = val_df["label"]
 
-    vectorizer = TfidfVectorizer(stop_words="english", max_features=10000, ngram_range=(1, 2))
+    vectorizer = FeatureUnion(
+        [
+            (
+                "word",
+                TfidfVectorizer(
+                    stop_words="english",
+                    ngram_range=(1, 3),
+                    min_df=1,
+                    sublinear_tf=True,
+                ),
+            ),
+            (
+                "char",
+                TfidfVectorizer(
+                    analyzer="char_wb",
+                    ngram_range=(3, 5),
+                    min_df=1,
+                    max_features=30000,
+                    sublinear_tf=True,
+                ),
+            ),
+        ]
+    )
     X_train_vec = vectorizer.fit_transform(X_train)
     X_val_vec = vectorizer.transform(X_val)
 
-    model = LogisticRegression(max_iter=1000, class_weight="balanced")
+    model = LogisticRegression(max_iter=3000, C=2.0, solver="liblinear", random_state=42)
     model.fit(X_train_vec, y_train)
 
     val_pred = model.predict(X_val_vec)
