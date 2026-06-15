@@ -116,13 +116,17 @@ def predict_bigru(texts):
             def __init__(self):
                 super().__init__()
                 self.embedding = nn.Embedding(vocab_size, emb_dim, padding_idx=0)
+                self.embed_dropout = nn.Dropout(0.0)
                 self.bigru = nn.GRU(emb_dim, hidden_dim, batch_first=True, bidirectional=True)
+                self.gru_dropout = nn.Dropout(0.0)
                 self.fc = nn.Linear(hidden_dim * 2, 1)
 
             def forward(self, x):
                 emb = self.embedding(x)
+                emb = self.embed_dropout(emb)
                 _, h = self.bigru(emb)
                 h = torch.cat([h[0], h[1]], dim=1)
+                h = self.gru_dropout(h)
                 return self.fc(h).squeeze(1)
 
         model = _BiGRULegacy()

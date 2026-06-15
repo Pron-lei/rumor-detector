@@ -40,7 +40,7 @@ class BiGRUInference:
     """
 
     @staticmethod
-    def _build_model(vocab_size, emb_dim, hidden_dim):
+    def _build_model(vocab_size, emb_dim, hidden_dim, dropout=0.0):
         import torch
         import torch.nn as nn
 
@@ -48,13 +48,17 @@ class BiGRUInference:
             def __init__(self):
                 super().__init__()
                 self.embedding = nn.Embedding(vocab_size, emb_dim, padding_idx=0)
+                self.embed_dropout = nn.Dropout(dropout)
                 self.bigru = nn.GRU(emb_dim, hidden_dim, batch_first=True, bidirectional=True)
+                self.gru_dropout = nn.Dropout(dropout)
                 self.fc = nn.Linear(hidden_dim * 2, 1)
 
             def forward(self, x):
                 emb = self.embedding(x)
+                emb = self.embed_dropout(emb)
                 _, h = self.bigru(emb)
                 h = torch.cat([h[0], h[1]], dim=1)
+                h = self.gru_dropout(h)
                 return self.fc(h).squeeze(1)
 
         return _BiGRU()
@@ -84,8 +88,9 @@ class BiGRUInference:
         hidden_dim = cfg.get("hidden_dim", state["bigru.weight_hh_l0"].shape[1])
         vocab_size = state["embedding.weight"].shape[0]
         max_len = cfg.get("max_len", 64)
+        dropout = cfg.get("dropout", 0.0)
 
-        model = BiGRUInference._build_model(vocab_size, emb_dim, hidden_dim)
+        model = BiGRUInference._build_model(vocab_size, emb_dim, hidden_dim, dropout)
         model.load_state_dict(state)
         model.to(device).eval()
 
