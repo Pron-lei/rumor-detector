@@ -90,48 +90,44 @@ def predict_bigru(texts):
     if not os.path.exists(path):
         return None
     import torch
-    import torch.nn as nn
 
     sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
     from text_utils import MAX_LEN, build_vocab, encode
+    from inference import BiGRUInference
 
     ckpt = torch.load(path, map_location="cpu", weights_only=False)
 
-    # 兼容两种保存格式
+    # ── 新格式：复用 BiGRUInference.from_checkpoint ──
     if isinstance(ckpt, dict) and "model_state" in ckpt:
-        state = ckpt["model_state"]
-        vocab = ckpt.get("vocab")
-        cfg = ckpt.get("config", {})
+        model, vocab, max_len = BiGRUInference.from_checkpoint(path, device="cpu")
     else:
-        state = ckpt  # 仅 state_dict 的旧格式
-        vocab, cfg = None, {}
+        # ── 旧格式兼容（仅 state_dict，从训练集重建词表） ──
+        import torch.nn as nn
 
-    if vocab is None:  # 旧格式：从训练集重建词表
+        state = ckpt
         train_df = pd.read_csv(os.path.join(DATA_DIR, "train_clean.csv"))
         vocab = build_vocab(train_df["text"])
+        emb_dim = state["embedding.weight"].shape[1]
+        hidden_dim = state["bigru.weight_hh_l0"].shape[1]
+        vocab_size = state["embedding.weight"].shape[0]
+        max_len = MAX_LEN
 
-    # 从权重形状反推结构，避免与训练超参不一致
-    emb_dim = cfg.get("embedding_dim", state["embedding.weight"].shape[1])
-    hidden_dim = cfg.get("hidden_dim", state["bigru.weight_hh_l0"].shape[1])
-    max_len = cfg.get("max_len", MAX_LEN)
-    vocab_size = state["embedding.weight"].shape[0]
+        class _BiGRULegacy(nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.embedding = nn.Embedding(vocab_size, emb_dim, padding_idx=0)
+                self.bigru = nn.GRU(emb_dim, hidden_dim, batch_first=True, bidirectional=True)
+                self.fc = nn.Linear(hidden_dim * 2, 1)
 
-    class BiGRU(nn.Module):
-        def __init__(self):
-            super().__init__()
-            self.embedding = nn.Embedding(vocab_size, emb_dim, padding_idx=0)
-            self.bigru = nn.GRU(emb_dim, hidden_dim, batch_first=True, bidirectional=True)
-            self.fc = nn.Linear(hidden_dim * 2, 1)
+            def forward(self, x):
+                emb = self.embedding(x)
+                _, h = self.bigru(emb)
+                h = torch.cat([h[0], h[1]], dim=1)
+                return self.fc(h).squeeze(1)
 
-        def forward(self, x):
-            emb = self.embedding(x)
-            _, h = self.bigru(emb)
-            h = torch.cat([h[0], h[1]], dim=1)
-            return self.fc(h).squeeze(1)
-
-    model = BiGRU()
-    model.load_state_dict(state)
-    model.eval()
+        model = _BiGRULegacy()
+        model.load_state_dict(state)
+        model.eval()
 
     ids = torch.tensor([encode(t, vocab, max_len) for t in texts], dtype=torch.long)
     preds = []
