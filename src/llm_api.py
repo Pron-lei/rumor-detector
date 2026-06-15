@@ -1,17 +1,17 @@
-"""SJTU LLM API wrapper for explanation generation."""
-
-from __future__ import annotations
-
-import json
+"""
+SJTU LLM API 封装
+- OpenAI 兼容接口，用于谣言检测解释生成
+- 支持环境变量 SJTU_API_KEY 覆盖默认 API Key
+- 无需 .env 文件即可使用默认配置
+"""
 import os
 import time
 from pathlib import Path
-from typing import Any, Mapping, Sequence
 
 try:
     import requests
     from requests import RequestException
-except ImportError:  # Keep fallback explanations usable before dependencies are installed.
+except ImportError:
     requests = None  # type: ignore[assignment]
     RequestException = OSError  # type: ignore[assignment]
 
@@ -20,16 +20,18 @@ class LLMAPIError(Exception):
     """Raised when the LLM API cannot return a usable response."""
 
 
+# ── API 配置 ──
+# 优先从环境变量读取，否则使用默认值（无需 .env 文件）
+API_KEY = os.getenv("SJTU_API_KEY", "sk-Iob3w6kF6wGJaroAv9uaCw")
+API_BASE = os.getenv("SJTU_LLM_API_URL", "https://models.sjtu.edu.cn/api/v1")
+DEFAULT_MODEL = os.getenv("SJTU_LLM_MODEL", "deepseek-chat")
+
+# 同时支持从 .env 文件加载（覆盖默认值）
 def _load_dotenv_if_needed() -> None:
     """Load a local .env file without requiring python-dotenv."""
-
-    if os.getenv("SJTU_LLM_API_URL") and os.getenv("SJTU_LLM_API_KEY"):
-        return
-
     env_path = Path(__file__).resolve().parents[1] / ".env"
     if not env_path.exists():
         return
-
     try:
         for raw_line in env_path.read_text(encoding="utf-8").splitlines():
             line = raw_line.strip()
@@ -43,168 +45,134 @@ def _load_dotenv_if_needed() -> None:
     except OSError:
         return
 
-
-def _get_config() -> tuple[str, str, str]:
-    _load_dotenv_if_needed()
-    api_url = os.getenv("SJTU_LLM_API_URL", "").strip()
-    api_key = os.getenv("SJTU_LLM_API_KEY", "").strip()
-    model = os.getenv("SJTU_LLM_MODEL", "deepseek-chat").strip() or "deepseek-chat"
-
-    missing = [
-        name
-        for name, value in (
-            ("SJTU_LLM_API_URL", api_url),
-            ("SJTU_LLM_API_KEY", api_key),
-            ("SJTU_LLM_MODEL", model),
-        )
-        if not value
-    ]
-    if missing:
-        raise LLMAPIError("Missing LLM environment variables: " + ", ".join(missing))
-    return api_url, api_key, model
-
-
-def _candidate_urls(api_url: str) -> list[str]:
-    """Accept either a full chat endpoint or a common API base URL."""
-
-    base_url = api_url.rstrip("/")
-    known_suffixes = ("/chat/completions", "/v1/chat/completions")
-    if base_url.endswith(known_suffixes):
-        return [base_url]
-    return [
-        base_url,
-        f"{base_url}/v1/chat/completions",
-        f"{base_url}/chat/completions",
-    ]
-
-
-def _extract_text(data: Any) -> str:
-    """Extract generated text from OpenAI-compatible and common custom payloads."""
-
-    if isinstance(data, str):
-        return data.strip()
-
-    if not isinstance(data, Mapping):
-        raise LLMAPIError("Unexpected LLM response type")
-
-    choices = data.get("choices")
-    if isinstance(choices, Sequence) and choices:
-        first = choices[0]
-        if isinstance(first, Mapping):
-            message = first.get("message")
-            if isinstance(message, Mapping):
-                content = message.get("content")
-                if isinstance(content, str) and content.strip():
-                    return content.strip()
-                if isinstance(content, Sequence):
-                    parts = []
-                    for item in content:
-                        if isinstance(item, Mapping) and isinstance(item.get("text"), str):
-                            parts.append(item["text"])
-                        elif isinstance(item, str):
-                            parts.append(item)
-                    if parts:
-                        return "".join(parts).strip()
-            for key in ("text", "content", "answer", "response"):
-                value = first.get(key)
-                if isinstance(value, str) and value.strip():
-                    return value.strip()
-
-    for key in ("output_text", "text", "content", "answer", "response", "result"):
-        value = data.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-
-    nested_data = data.get("data")
-    if isinstance(nested_data, Mapping):
-        return _extract_text(nested_data)
-
-    raise LLMAPIError("LLM response does not contain generated text")
+_load_dotenv_if_needed()
+# 重新读取，.env 中的值优先
+API_KEY = os.getenv("SJTU_API_KEY", API_KEY)
+API_BASE = os.getenv("SJTU_LLM_API_URL", API_BASE)
+DEFAULT_MODEL = os.getenv("SJTU_LLM_MODEL", DEFAULT_MODEL)
 
 
 def call_llm(
-    messages: list[dict[str, str]],
-    timeout: float = 30.0,
-    retries: int = 2,
-    temperature: float = 0.2,
-    max_tokens: int = 512,
+    prompt: str,
+    system_prompt: str = "",
+    model: str = DEFAULT_MODEL,
+    temperature: float = 0.3,
+    max_tokens: int = 256,
+    timeout: int = 30,
+    max_retries: int = 2,
 ) -> str:
-    """Call the SJTU LLM API and return generated text.
-
-    Parameters follow OpenAI-compatible chat completion conventions.
     """
+    调用 SJTU LLM API（OpenAI 兼容接口）
 
-    if not isinstance(messages, list) or not messages:
-        raise LLMAPIError("messages must be a non-empty list")
-    if retries < 0:
-        raise LLMAPIError("retries must be non-negative")
+    Args:
+        prompt: 用户输入内容
+        system_prompt: 系统提示词（角色设定）
+        model: 模型名称
+        temperature: 生成温度（0-2，越低越确定）
+        max_tokens: 最大生成长度
+        timeout: 请求超时秒数
+        max_retries: 失败重试次数
+
+    Returns:
+        模型生成的文本
+    """
     if requests is None:
         raise LLMAPIError("The requests package is not installed")
 
-    api_url, api_key, model = _get_config()
-    candidate_urls = _candidate_urls(api_url)
     headers = {
-        "Authorization": f"Bearer {api_key}",
+        "Authorization": f"Bearer {API_KEY}",
         "Content-Type": "application/json",
     }
-    payload = {
-        "model": model,
-        "messages": messages,
-        "temperature": temperature,
-        "max_tokens": max_tokens,
-    }
 
-    last_error: Exception | None = None
-    for attempt in range(retries + 1):
-        for url in candidate_urls:
-            try:
-                response = requests.post(
-                    url,
-                    headers=headers,
-                    data=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
-                    timeout=timeout,
-                )
-                if response.status_code >= 400:
-                    raise LLMAPIError(
-                        f"LLM API returned HTTP {response.status_code} at {url}: "
-                        f"{response.text[:200]}"
-                    )
-                try:
-                    data = response.json()
-                except ValueError as exc:
-                    raise LLMAPIError("LLM API returned non-JSON response") from exc
-                return _extract_text(data)
-            except (RequestException, LLMAPIError) as exc:
-                last_error = exc
-                if isinstance(exc, LLMAPIError) and "HTTP 404" in str(exc):
-                    continue
-                break
-        if attempt < retries:
-            time.sleep(min(2**attempt, 4))
+    messages = []
+    if system_prompt:
+        messages.append({"role": "system", "content": system_prompt})
+    messages.append({"role": "user", "content": prompt})
 
-    raise LLMAPIError(f"LLM API call failed after {retries + 1} attempts") from last_error
+    last_error = None
+    for attempt in range(max_retries + 1):
+        try:
+            response = requests.post(
+                f"{API_BASE}/chat/completions",
+                headers=headers,
+                json={
+                    "model": model,
+                    "messages": messages,
+                    "temperature": temperature,
+                    "max_tokens": max_tokens,
+                },
+                timeout=timeout,
+            )
+            response.raise_for_status()
+            return response.json()["choices"][0]["message"]["content"]
+
+        except requests.exceptions.Timeout:
+            last_error = f"请求超时（{timeout}s）"
+        except requests.exceptions.HTTPError as e:
+            last_error = f"HTTP 错误: {e.response.status_code} - {e.response.text[:200]}"
+        except requests.exceptions.RequestException as e:
+            last_error = f"请求失败: {e}"
+        except (KeyError, IndexError, TypeError) as e:
+            last_error = f"响应解析失败: {e}"
+
+        if attempt < max_retries:
+            wait = (attempt + 1) * 2
+            print(f"[LLM] {last_error}，{wait}s 后重试 ({attempt + 1}/{max_retries})")
+            time.sleep(wait)
+
+    raise LLMAPIError(f"LLM 调用失败（已重试{max_retries}次）: {last_error}")
 
 
 def call_sjtu_llm(
-    prompt: str | list[dict[str, str]],
-    temperature: float = 0.2,
-    max_tokens: int = 300,
-    timeout: float = 20,
+    prompt: "str | list[dict[str, str]]",
+    temperature: float = 0.3,
+    max_tokens: int = 256,
+    timeout: int = 30,
     retries: int = 2,
 ) -> str:
-    """Call SJTU LLM with either a plain prompt string or chat messages."""
+    """兼容旧接口：支持纯文本或 messages 列表。
 
-    if isinstance(prompt, str):
-        messages = [{"role": "user", "content": prompt}]
-    else:
-        messages = prompt
+    若传入 messages 列表，则提取 system 和 user 消息后调用 call_llm。
+    """
+    if isinstance(prompt, list):
+        system_prompt = ""
+        user_prompt = ""
+        for msg in prompt:
+            if msg["role"] == "system":
+                system_prompt = msg["content"]
+            elif msg["role"] == "user":
+                user_prompt = msg["content"]
+        if not user_prompt:
+            user_prompt = str(prompt)
+        return call_llm(
+            prompt=user_prompt,
+            system_prompt=system_prompt,
+            temperature=temperature,
+            max_tokens=max_tokens,
+            timeout=timeout,
+            max_retries=retries,
+        )
     return call_llm(
-        messages,
-        timeout=timeout,
-        retries=retries,
+        prompt=prompt,
         temperature=temperature,
         max_tokens=max_tokens,
+        timeout=timeout,
+        max_retries=retries,
     )
 
 
 __all__ = ["LLMAPIError", "call_llm", "call_sjtu_llm"]
+
+
+if __name__ == "__main__":
+    # 快速连通性测试
+    print("测试 SJTU LLM API 连通性...")
+    try:
+        reply = call_llm(
+            prompt="请用一句话介绍上海交通大学。",
+            system_prompt="你是一个友好的助手，请用中文回答。",
+            max_tokens=100,
+        )
+        print(f"[OK] API 连通成功！\n回复: {reply}")
+    except Exception as e:
+        print(f"[FAIL] API 连通失败: {e}")

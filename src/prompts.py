@@ -1,160 +1,183 @@
-"""Prompt templates for Chinese rumor-detection explanations."""
+"""
+Prompt 模板管理
+- 用于谣言检测的中文解释生成
+- 提供零样本、少样本、思维链等多种策略
+"""
 
-from __future__ import annotations
+# ═══════════════════════════════════════════════════════════════
+# System Prompt — 设定 LLM 角色
+# ═══════════════════════════════════════════════════════════════
 
-from typing import Literal
+SYSTEM_PROMPT_V1 = """你是一个专业的谣言检测分析助手。你的任务是根据给定的推文内容和分类模型给出的检测结果，用中文解释判断依据。
 
+要求：
+1. 必须引用推文中的具体词语、句式或细节作为证据
+2. 解释要有逻辑性，清晰说明为什么判定为谣言或非谣言
+3. 控制在2-3句话，直接、客观
+4. 不要编造推文中不存在的信息
+5. 不要输出与解释无关的内容"""
 
-PromptType = Literal["basic", "evidence", "fewshot", "fewshot_evidence"]
+SYSTEM_PROMPT_V2 = """你是一名社交媒体谣言分析专家。请你结合推文内容，以第二人称（"该推文"）客观地分析：为什么这条推文被判定为谣言或非谣言。
 
-LABEL_MAP = {
-    0: "非谣言",
-    1: "谣言",
-}
+分析时请关注以下维度（选择最相关的1-2点展开）：
+- 语言特征：是否使用夸张词汇（BREAKING、shocking）、情绪化表达、大量感叹号
+- 信息来源：是否引用官方/权威来源，还是匿名/无法验证的消息
+- 内容逻辑：叙述是否存在矛盾，是否包含无法核实的具体数字
+- 写作风格：是否类似新闻标题（标题党），是否大量使用hashtag
+- 传播意图：是在陈述事实还是在煽动情绪、传播恐慌
 
-LABEL_TEXT = {
-    0: "非谣言",
-    1: "谣言",
-}
-
-SYSTEM_PROMPT = (
-    "你是一个谨慎的可解释谣言检测助手。你只能基于输入文本本身和给定分类结果生成中文判断依据。"
-    "不得编造外部事实，不得声称你已经查证新闻真伪，不得引用未提供的来源。"
-)
-
-
-def _format_confidence(confidence: float) -> str:
-    return f"{confidence:.2%}"
-
-
-def _common_context(text: str, label: int, confidence: float) -> str:
-    return (
-        f"待解释文本：{text}\n"
-        f"分类结果：{LABEL_TEXT[label]}（label={label}）\n"
-        f"模型置信度：{_format_confidence(confidence)}"
-    )
+请用中文给出2-3句分析，直接引用推文原文作为证据。"""
 
 
-def _basic_prompt(text: str, label: int, confidence: float) -> list[dict[str, str]]:
-    user_prompt = (
-        f"{_common_context(text, label, confidence)}\n\n"
-        "请用中文生成一段简洁的判断依据，说明为什么该文本被判为上述类别。"
-        "解释必须聚焦文本内部特征，例如措辞是否夸张、来源是否明确、是否诱导转发、"
-        "是否使用绝对化表达或情绪化表达。不要输出项目符号。"
-    )
-    return [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": user_prompt},
-    ]
+# ═══════════════════════════════════════════════════════════════
+# Few-shot 示例
+# ═══════════════════════════════════════════════════════════════
+
+FEW_SHOT_EXAMPLES = [
+    {
+        "text": "BREAKING: Massive earthquake hits downtown, thousands feared dead!",
+        "label": 1,
+        "confidence": 0.92,
+        "explanation": "该推文使用'BREAKING'营造紧迫感，'Massive'和'thousands feared dead'属于夸张表述但缺乏具体地点、时间和消息来源，符合谣言的传播特征——用模糊的灾难描述煽动恐慌情绪。"
+    },
+    {
+        "text": "The city council will meet on Tuesday to discuss the budget proposal.",
+        "label": 0,
+        "confidence": 0.88,
+        "explanation": "该推文陈述了一件常规的市政会议安排，时间（Tuesday）、主体（city council）、事项（budget proposal）明确且可验证，语气平实、无情绪化措辞，属于正常的信息传达。"
+    },
+    {
+        "text": "Anonymous sources confirm that a famous actor has been found dead. Police investigating.",
+        "label": 1,
+        "confidence": 0.85,
+        "explanation": "该推文的信息来源仅为'Anonymous sources'（匿名来源），无法核实；'famous actor'未指明具体是谁，'Police investigating'看似增加可信度但缺乏具体警方声明链接。匿名来源+模糊主体是典型谣言模式。"
+    },
+]
 
 
-def _evidence_prompt(text: str, label: int, confidence: float) -> list[dict[str, str]]:
-    user_prompt = (
-        f"{_common_context(text, label, confidence)}\n\n"
-        "请生成中文判断依据，要求：\n"
-        "1. 先概括分类结论，但不要声称已经核验事实真伪；\n"
-        "2. 引用或转述文本中的具体线索作为依据；\n"
-        "3. 重点分析文本内部特征，包括夸张表达、缺少明确来源、诱导转发、绝对化措辞、"
-        "情绪煽动、细节不足或表述相对克制等；\n"
-        "4. 只输出一段 80 到 160 字的中文解释。"
-    )
-    return [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": user_prompt},
-    ]
+# ═══════════════════════════════════════════════════════════════
+# User Prompt 构建函数
+# ═══════════════════════════════════════════════════════════════
+
+def build_user_prompt_v0(text: str, label: int, confidence: float) -> str:
+    """基础版：直接询问"""
+    label_text = "谣言" if label == 1 else "非谣言"
+    return f"""推文内容："{text}"
+
+检测结果：该推文被判定为【{label_text}】，置信度 {confidence:.2%}。
+
+请解释为什么这条推文是{label_text}："""
 
 
-def _fewshot_prompt(text: str, label: int, confidence: float) -> list[dict[str, str]]:
-    examples = (
-        "示例一：\n"
-        "文本：BREAKING!!! Everyone must share this now, doctors are hiding the cure!\n"
-        "分类结果：谣言\n"
-        "解释：该文本使用大量感叹号和“must share”等强烈转发动员，并声称有人隐瞒关键信息，"
-        "但没有给出明确来源或可核对细节，因此从文本特征看更符合谣言传播的表达模式。\n\n"
-        "示例二：\n"
-        "文本：The city health office said the vaccination clinic will open at 9 a.m. on Monday.\n"
-        "分类结果：非谣言\n"
-        "解释：该文本语气较为克制，信息包含机构、时间和具体事项，没有明显煽动性措辞、"
-        "绝对化断言或诱导转发，因此从文本内部特征看更接近普通信息陈述。"
-    )
-    user_prompt = (
-        f"{examples}\n\n"
-        f"{_common_context(text, label, confidence)}\n\n"
-        "请参考示例风格，输出一段中文判断依据。不得编造外部事实，不得说已经查证新闻真伪，"
-        "只能分析文本内部线索。"
-    )
-    return [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": user_prompt},
-    ]
+def build_user_prompt_v1(text: str, label: int, confidence: float) -> str:
+    """增强版：加入思维链引导"""
+    label_text = "谣言" if label == 1 else "非谣言"
+
+    if label == 1:
+        hint = """请按以下步骤分析（在内心完成，只输出最终解释）：
+1) 识别推文中可能暗示不实信息的线索（如来源不明、用词夸张、缺乏证据）
+2) 指出最关键的1-2个可疑点
+3) 用中文简明解释"""
+    else:
+        hint = """请按以下步骤分析（在内心完成，只输出最终解释）：
+1) 识别推文中体现真实性的特征（如来源可靠、信息具体可验证、语气客观）
+2) 指出最关键的1-2个可信点
+3) 用中文简明解释"""
+
+    return f"""推文内容："{text}"
+
+检测结果：该推文被判定为【{label_text}】，置信度 {confidence:.2%}。
+
+{hint}
+
+请给出判断依据（中文2-3句话）："""
 
 
-def build_fewshot_evidence_prompt(
-    text: str,
-    label: int,
-    confidence: float,
-    evidence_tags: list[str] | None = None,
+def build_user_prompt_fewshot(text: str, label: int, confidence: float) -> str:
+    """Few-shot 版：包含示例"""
+    label_text = "谣言" if label == 1 else "非谣言"
+
+    # 选择同标签的示例（最多2个）
+    examples = [e for e in FEW_SHOT_EXAMPLES if e["label"] == label][:2]
+
+    parts = ["以下是一些推文分析的示例：\n"]
+    for i, ex in enumerate(examples, 1):
+        ex_label = "谣言" if ex["label"] == 1 else "非谣言"
+        parts.append(f"示例{i}：推文 \"{ex['text']}\" → {ex_label}")
+        parts.append(f"解释：{ex['explanation']}\n")
+
+    parts.append("---")
+    parts.append(f'现在请分析推文："{text}"')
+    parts.append(f"检测结果：【{label_text}】，置信度 {confidence:.2%}")
+    parts.append("请用与示例相同的格式给出解释：")
+
+    return "\n".join(parts)
+
+
+def build_user_prompt_rag(
+    text: str, label: int, confidence: float, retrieved: "list[dict] | None" = None,
 ) -> str:
-    """Build a few-shot prompt with explicit evidence tags."""
+    """RAG 增强版：附带检索到的相似案例作为参考"""
+    label_text = "谣言" if label == 1 else "非谣言"
 
-    label_text = LABEL_MAP.get(label, "非谣言")
-    tags = evidence_tags or ["表述较客观"]
-    tag_text = "、".join(tags)
-    confidence_note = (
-        "如果 confidence < 0.60，要在解释中体现模型判断不够确定。"
-        if confidence < 0.60
-        else ""
-    )
-    return (
-        "你是一个可解释谣言检测助手。LLM 不是事实核查系统，不要重新判断真假，"
-        "只解释分类模型为什么可能给出该结果。不要编造外部事实、新闻背景、调查结论。"
-        "不要声称“已经查证”“事实证明”“官方证实”。不要仅因为事件名、人物名、地名、"
-        "hashtag、URL 判断为谣言或非谣言。只输出一段 80 到 150 字中文判断依据，"
-        "不要分点，不要输出英文原文。"
-        f"{confidence_note}\n\n"
-        "示例 1：\n"
-        "推文：BREAKING: Unconfirmed reports say a second explosion happened downtown.\n"
-        "标签：1（谣言）\n"
-        "置信度：0.8600\n"
-        "线索：突发新闻式表达、未经证实或传闻式表达\n"
-        "解释：该推文被判定为谣言，模型置信度较高。文本中出现了突发新闻式表达和未经证实的说法，"
-        "但没有给出明确来源或更多可核验细节，因此模型认为其谣言风险较高。\n\n"
-        "示例 2：\n"
-        "推文：The city council will hold a public meeting on Friday according to the official schedule.\n"
-        "标签：0（非谣言）\n"
-        "置信度：0.8200\n"
-        "线索：表述较客观\n"
-        "解释：该推文被判定为非谣言，模型置信度较高。文本整体表述较为客观，包含明确主体和时间信息，"
-        "没有明显夸张、恐慌或诱导转发的表达，因此模型认为其谣言风险较低。\n\n"
-        "现在请解释下面这条推文的分类结果：\n"
-        f"推文：{text}\n"
-        f"标签：{label}（{label_text}）\n"
-        f"置信度：{confidence:.4f}\n"
-        f"线索：{tag_text}\n"
-        "解释："
-    )
+    parts = [f'推文内容："{text}"']
+    parts.append(f"检测结果：该推文被判定为【{label_text}】，置信度 {confidence:.2%}。")
+
+    if retrieved:
+        parts.append("\n以下是从训练集中检索到的相似推文（仅供参考）：")
+        for i, r in enumerate(retrieved, 1):
+            parts.append(
+                f"  {i}. \"{r['text'][:120]}\" "
+                f"→ {r['label']}（相似度 {r['similarity']:.2f}）"
+            )
+
+    parts.append("\n请结合推文内容和参考案例，用中文给出2-3句判断依据：")
+    return "\n".join(parts)
+
+
+# ═══════════════════════════════════════════════════════════════
+# 兼容旧接口
+# ═══════════════════════════════════════════════════════════════
+
+LABEL_TEXT = {0: "非谣言", 1: "谣言"}
+LABEL_MAP = LABEL_TEXT
+
+# 默认使用的版本
+DEFAULT_SYSTEM_PROMPT = SYSTEM_PROMPT_V2
+DEFAULT_BUILD_USER_PROMPT = build_user_prompt_v1
 
 
 def build_prompt(
     text: str,
     label: int,
     confidence: float,
-    prompt_type: PromptType = "fewshot_evidence",
-    evidence_tags: list[str] | None = None,
-) -> list[dict[str, str]] | str:
-    """Build OpenAI-compatible chat messages for the selected prompt template."""
+    prompt_type: str = "v1",
+    evidence_tags: "list[str] | None" = None,
+) -> str:
+    """兼容旧 build_prompt 接口：返回纯文本 user prompt。
 
-    if label not in LABEL_TEXT:
-        raise ValueError("label must be 0 (非谣言) or 1 (谣言)")
-    if prompt_type == "fewshot_evidence":
-        return build_fewshot_evidence_prompt(text, label, confidence, evidence_tags)
-    if prompt_type == "basic":
-        return _basic_prompt(text, label, confidence)
-    if prompt_type == "evidence":
-        return _evidence_prompt(text, label, confidence)
-    if prompt_type == "fewshot":
-        return _fewshot_prompt(text, label, confidence)
-    raise ValueError("prompt_type must be one of: basic, evidence, fewshot, fewshot_evidence")
+    prompt_type: "v0" | "v1" | "fewshot" | "rag"
+    """
+    builders = {
+        "v0": build_user_prompt_v0,
+        "v1": build_user_prompt_v1,
+        "fewshot": build_user_prompt_fewshot,
+        "rag": build_user_prompt_rag,
+        # 旧名称兼容
+        "basic": build_user_prompt_v0,
+        "evidence": build_user_prompt_v1,
+        "fewshot_evidence": build_user_prompt_fewshot,
+    }
+    build_fn = builders.get(prompt_type, DEFAULT_BUILD_USER_PROMPT)
+    if prompt_type == "rag":
+        return build_fn(text, label, confidence)
+    return build_fn(text, label, confidence)
 
 
-__all__ = ["LABEL_MAP", "build_fewshot_evidence_prompt", "build_prompt"]
+__all__ = [
+    "SYSTEM_PROMPT_V1", "SYSTEM_PROMPT_V2",
+    "DEFAULT_SYSTEM_PROMPT", "DEFAULT_BUILD_USER_PROMPT",
+    "build_user_prompt_v0", "build_user_prompt_v1",
+    "build_user_prompt_fewshot", "build_user_prompt_rag",
+    "build_prompt", "LABEL_TEXT", "LABEL_MAP",
+]
