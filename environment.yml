@@ -1,6 +1,5 @@
 name: rumor-detector
 channels:
-  - pytorch
   - conda-forge
   - defaults
 dependencies:
