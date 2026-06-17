@@ -1,7 +1,7 @@
 """
 统一模型评估（成员 D）
 ===================================================================
-在验证集 val_clean.csv 上评估三个模型（LR / BiGRU / BERT），输出：
+在验证集 val_clean.csv 上评估两个模型（LR / BiGRU），输出：
 
   1. 指标表        outputs/metrics.csv  +  outputs/metrics.md
                    （accuracy / precision / recall / F1，宏平均 + 谣言类）
@@ -63,7 +63,7 @@ if _cjk_font:
     plt.rcParams["font.sans-serif"] = [_cjk_font]
     LABEL_NAMES = ["非谣言 (0)", "谣言 (1)"]
     _T = {"cm": "混淆矩阵", "xpred": "预测标签", "ytrue": "真实标签",
-          "score": "分数", "compare": "三模型在验证集上的指标对比"}
+          "score": "分数", "compare": "两模型在验证集上的指标对比"}
 else:  # 无中文字体（如部分 Linux 环境）→ 全英文，避免乱码方块
     LABEL_NAMES = ["Non-rumor (0)", "Rumor (1)"]
     _T = {"cm": "Confusion Matrix", "xpred": "Predicted", "ytrue": "True",
@@ -166,8 +166,8 @@ def predict_bert(texts):
     return np.concatenate(preds)
 
 
-PREDICTORS = {"lr": predict_lr, "bigru": predict_bigru, "bert": predict_bert}
-DISPLAY_NAME = {"lr": "TF-IDF + LR", "bigru": "BiGRU", "bert": "BERT"}
+PREDICTORS = {"lr": predict_lr, "bigru": predict_bigru}
+DISPLAY_NAME = {"lr": "TF-IDF + LR", "bigru": "BiGRU"}
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -206,7 +206,7 @@ def plot_confusion(y_true, y_pred, key):
 
 def plot_comparison(results):
     metrics = ["accuracy", "precision_macro", "recall_macro", "f1_macro"]
-    labels = ["Accuracy", "Precision(macro)", "Recall(macro)", "F1(macro)"]
+    labels = ["准确率 (Accuracy)", "精确率 (Precision)", "召回率 (Recall)", "F1 值 (F1)"]
     keys = list(results.keys())
     x = np.arange(len(metrics))
     width = 0.8 / max(len(keys), 1)
@@ -255,8 +255,8 @@ def main():
         sys.stdout.reconfigure(encoding="utf-8")
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--models", nargs="+", default=["lr", "bigru", "bert"],
-                        choices=["lr", "bigru", "bert"])
+    parser.add_argument("--models", nargs="+", default=["lr", "bigru"],
+                        choices=["lr", "bigru"])
     parser.add_argument("--val", default=os.path.join(DATA_DIR, "val_clean.csv"))
     args = parser.parse_args()
 
@@ -283,20 +283,33 @@ def main():
         results[key] = m
         cm_path = plot_confusion(y_true, y_pred, key)
         err_path, n_err = save_error_samples(val_df, y_true, y_pred, key)
-        print(f"    accuracy={m['accuracy']:.4f}  f1_macro={m['f1_macro']:.4f}  "
-              f"f1_rumor={m['f1_rumor']:.4f}")
+        print(f"    准确率={m['accuracy']:.4f}  "
+              f"精确率(宏平均)={m['precision_macro']:.4f}  "
+              f"召回率(宏平均)={m['recall_macro']:.4f}  "
+              f"F1(宏平均)={m['f1_macro']:.4f}  "
+              f"F1(谣言)={m['f1_rumor']:.4f}")
         print(f"    混淆矩阵 -> {os.path.relpath(cm_path, PROJECT_ROOT)}")
         print(f"    错误样本 {n_err} 条 -> {os.path.relpath(err_path, PROJECT_ROOT)}\n")
 
     if not results:
-        print("没有可评估的模型。请先训练模型（train_baseline / train_bigru / train_bert）。")
+        print("没有可评估的模型。请先训练模型（train_baseline / train_bigru）。")
         return
 
     # ── 汇总指标表 ──
+    # 指标中英文映射
+    _METRIC_CN = {
+        "accuracy": "准确率",
+        "precision_macro": "精确率（宏平均）",
+        "recall_macro": "召回率（宏平均）",
+        "f1_macro": "F1（宏平均）",
+        "precision_rumor": "精确率（谣言类）",
+        "recall_rumor": "召回率（谣言类）",
+        "f1_rumor": "F1（谣言类）",
+    }
     rows = []
     for key, m in results.items():
-        row = {"model": DISPLAY_NAME[key]}
-        row.update({k: round(v, 4) for k, v in m.items()})
+        row = {"模型": DISPLAY_NAME[key]}
+        row.update({_METRIC_CN[k]: round(v, 4) for k, v in m.items()})
         rows.append(row)
     table = pd.DataFrame(rows)
 
@@ -310,6 +323,10 @@ def main():
         f.write(df_to_markdown(table))
         f.write("\n\n")
         f.write("- `*_macro`：两类的宏平均；`*_rumor`：谣言类（标签=1）单独指标。\n")
+        f.write("- **准确率 (Accuracy)**：所有样本中预测正确的比例。\n")
+        f.write("- **精确率 (Precision)**：预测为某类的样本中，真正属于该类的比例（查准率）。\n")
+        f.write("- **召回率 (Recall)**：某类真实样本中，被正确识别出来的比例（查全率）。\n")
+        f.write("- **F1 值**：精确率与召回率的调和平均，综合衡量模型性能。\n")
     cmp_path = plot_comparison(results)
 
     print("=" * 60)
