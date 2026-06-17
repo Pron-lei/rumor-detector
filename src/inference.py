@@ -106,8 +106,8 @@ class RumourDetectClass:
     谣言检测推理类
 
     用法:
-        detector = RumourDetectClass()          # 默认 BERT（需要 torch + transformers）
-        detector = RumourDetectClass("bigru")   # BiGRU（需要 torch）
+        detector = RumourDetectClass()          # 默认 BiGRU（需要 torch + transformers）
+        detector = RumourDetectClass("bert")    # BERT（需要 torch + transformers）
         detector = RumourDetectClass("lr")      # 逻辑回归（仅需 sklearn + joblib）
 
         result = detector.classify("推文内容")
@@ -115,7 +115,7 @@ class RumourDetectClass:
         #          "confidence": 0.87, "explanation": "...", "model": "bert"}
     """
 
-    def __init__(self, model_type: str = "bert"):
+    def __init__(self, model_type: str = "bigru"):
         if model_type not in ("bert", "bigru", "lr"):
             raise ValueError(
                 f"不支持的模型类型: {model_type}，可选 bert / bigru / lr"
@@ -311,9 +311,9 @@ def main():
     mode.add_argument("--text", "-t", type=str, default=None, help="单条检测")
     mode.add_argument("--interactive", "-i", action="store_true", help="交互模式")
     parser.add_argument(
-        "--model", "-m", type=str, default="bert",
+        "--model", "-m", type=str, default="bigru",
         choices=["bert", "bigru", "lr"],
-        help="分类模型（默认 bert）",
+        help="分类模型（默认 bigru)",
     )
     parser.add_argument("--no-explain", action="store_true", help="跳过解释")
     args = parser.parse_args()
