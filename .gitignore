@@ -24,8 +24,6 @@ models/bert_model/
 
 # Outputs
 outputs/predictions.csv
-outputs/figures/*.png
-outputs/figures/*.pdf
 !outputs/.gitkeep
 !outputs/figures/.gitkeep
 
@@ -41,8 +39,9 @@ Thumbs.db
 Desktop.ini
 
 # Course materials (not to be committed)
-*大作业*.pdf
-*大作业*.doc
+*大作业2026.pdf
+*大作业模板*.pdf
+*大作业模板*.doc
 
 # Temp
 _pdf_output.txt
