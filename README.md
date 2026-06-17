@@ -16,6 +16,7 @@
 ```text
 rumor-detector/
 ├── README.md
+├── 人工智能导论大作业4组报告.pdf   # 大作业报告
 ├── requirements.txt
 ├── environment.yml
 ├── .env.example

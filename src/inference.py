@@ -153,7 +153,7 @@ class RumourDetectClass:
         if not os.path.isdir(model_dir) or not os.listdir(model_dir):
             raise FileNotFoundError(
                 f"BERT 模型未找到: {model_dir}\n"
-                "  请先运行 python src/train_bert.py 训练，或按 models/README.md 下载。"
+                "  请先运行 python src/train_bert.py --epochs 3 --batch_size 16 训练。"
             )
         self.tokenizer = AutoTokenizer.from_pretrained(model_dir)
         self.model = AutoModelForSequenceClassification.from_pretrained(model_dir)
@@ -217,7 +217,10 @@ class RumourDetectClass:
         import torch
         from text_utils import encode
 
-        cleaned = self._preprocess(text)
+        # 与训练保持一致：只做 clean_text + 小写，不 strip 标点
+        # tokenize() 内部用 \w+ 分词，标点作为天然分词边界
+        # 若提前 strip 标点会导致 token 粘连（如 don't → dont）
+        cleaned = clean_text(text).lower()
         ids = torch.tensor(
             encode(cleaned, self.vocab, self._bigru_max_len), dtype=torch.long
         ).unsqueeze(0).to(self._device)
@@ -269,11 +272,7 @@ class RumourDetectClass:
                 except Exception as e:
                     explanation = f"[解释生成失败: {e}]"
             else:
-                explanation = (
-                    "[解释模块未就绪] "
-                    "LLM 解释模块（explain.py / llm_api.py）尚未提交，"
-                    "请等待成员 C 合并后重试。当前仅输出分类结果。"
-                )
+                explanation = "[解释模块未就绪] 当前仅输出分类结果。"
 
         return {
             "label": label,

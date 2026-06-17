@@ -10,7 +10,6 @@ TF-IDF + 逻辑回归 基线模型训练
 """
 
 import os
-import re
 import sys
 
 import joblib

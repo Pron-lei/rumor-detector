@@ -166,8 +166,8 @@ def predict_bert(texts):
     return np.concatenate(preds)
 
 
-PREDICTORS = {"lr": predict_lr, "bigru": predict_bigru}
-DISPLAY_NAME = {"lr": "TF-IDF + LR", "bigru": "BiGRU"}
+PREDICTORS = {"lr": predict_lr, "bigru": predict_bigru, "bert": predict_bert}
+DISPLAY_NAME = {"lr": "TF-IDF + LR", "bigru": "BiGRU", "bert": "BERT"}
 
 
 # ═══════════════════════════════════════════════════════════════════
@@ -256,7 +256,7 @@ def main():
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--models", nargs="+", default=["lr", "bigru"],
-                        choices=["lr", "bigru"])
+                        choices=["lr", "bigru", "bert"])
     parser.add_argument("--val", default=os.path.join(DATA_DIR, "val_clean.csv"))
     args = parser.parse_args()
 
@@ -292,7 +292,7 @@ def main():
         print(f"    错误样本 {n_err} 条 -> {os.path.relpath(err_path, PROJECT_ROOT)}\n")
 
     if not results:
-        print("没有可评估的模型。请先训练模型（train_baseline / train_bigru）。")
+        print("没有可评估的模型。请先训练模型（train_baseline / train_bigru / train_bert）。")
         return
 
     # ── 汇总指标表 ──
