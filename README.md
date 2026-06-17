@@ -186,3 +186,9 @@ A 的工作在 B 和 C 完成后收尾。
 - Prompt 中不要让模型编造外部事实，解释应尽量引用推文中的具体内容。
 - 最终系统必须能做到：输入一条文本，输出分类结果和判断依据。
 - 报告篇幅有限，重点写方法、实验结果、解释设计和小组分工。
+- **Windows 用户**：如运行时遇到 `找不到指定的程序`（WinError 127）或 `libiomp5md.dll` 错误，执行：
+  ```bash
+  conda env config vars set KMP_DUPLICATE_LIB_OK=TRUE -n rumor-detector
+  conda activate rumor-detector
+  ```
+  然后重新运行即可。
