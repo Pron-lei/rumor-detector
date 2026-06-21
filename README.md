@@ -105,8 +105,12 @@ python src/inference.py --text "xxx" --model lr
 
 # 跳过 LLM 解释（仅分类，速度快）
 python src/inference.py --text "xxx" --no-explain
+```
 
-# 评估模型（LR + BiGRU）
+**4. 评估模型。**
+
+```bash
+# 评估（LR + BiGRU）
 python src/evaluate.py
 
 # 评估 + BERT（需先训练 BERT）
@@ -168,27 +172,3 @@ python src/evaluate.py --models lr bigru bert
 - 编写报告，统稿最终报告
 
 A 的工作在 B 和 C 完成后收尾。
-
-## 最终提交内容
-
-组长最终在 Canvas 提交 GitHub 仓库地址。仓库中应至少包含：
-
-- `README.md`：项目说明、环境配置、运行方法。
-- `人工智能导论大作业4组报告.pdf`：大作业报告。
-- `src/`：模型训练、评估、推理和解释代码。
-- `data/`：课程提供的数据集及清洗后数据。
-- `models/`：可运行推理所需的 LR 和 BiGRU 模型文件。
-- `outputs/`：评估指标、图表和错误样本。
-
-## 注意事项
-
-- 如果使用大语言模型生成判断依据，应使用学校提供的 SJTU API，方便助教复现。
-- Prompt 中不要让模型编造外部事实，解释应尽量引用推文中的具体内容。
-- 最终系统必须能做到：输入一条文本，输出分类结果和判断依据。
-- 报告篇幅有限，重点写方法、实验结果、解释设计和小组分工。
-- **Windows 用户**：如运行时遇到 `找不到指定的程序`（WinError 127）或 `libiomp5md.dll` 错误，执行：
-  ```bash
-  conda env config vars set KMP_DUPLICATE_LIB_OK=TRUE -n rumor-detector
-  conda activate rumor-detector
-  ```
-  然后重新运行即可。
